@@ -63,7 +63,7 @@ SCRIPT_VERSION="Version v0.0.3 20200710"
 function az_login_check () {
     if $(az account list 2>&1 | grep -q 'az login')
     then
-        echo -e "\nError: You have to login first with the 'az login' command before you can run this lab tool\n"
+        echo -e "\nWarning: You have to login first with the 'az login' command before you can run this lab tool\n"
         az login -o table
     fi
 }
