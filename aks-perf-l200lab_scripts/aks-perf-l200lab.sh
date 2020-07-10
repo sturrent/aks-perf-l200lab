@@ -383,11 +383,12 @@ function lab_scenario_2_validation () {
         echo -e "Enter the process ID which is using most of the memory from the node\n"
         read -p 'PID: ' USER_PID
         RE='^[0-9]+$'
-        if ! [[ $USER_PID =~ $RE ]] ; then
-        echo "ERROR: The PID value is not valid..."
-        exit 12
+        if ! [[ $USER_PID =~ $RE ]]
+        then
+            echo -e "ERROR: The PID value $USER_PID is not valid...\n"
+            exit 12
         fi
-        if [ $TOP_POD -eq $USER_PID ]
+        if [ "$TOP_PID" == "$USER_PID" ]
         then
             echo -e "\n\n========================================================"
             echo -e "\nYour answer is correct, the keyword for the assesment is:\n\nsturdy laundering grammatically\n"
