@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # script name: aks-perf-l200lab.sh
-# Version v0.0.1 20200706
+# Version v0.0.2 20200710
 # Set of tools to deploy L200 Azure containers labs
 
 # "-g|--resource-group" resource group name
@@ -55,7 +55,7 @@ done
 # Variable definition
 SCRIPT_PATH="$( cd "$(dirname "$0")" ; pwd -P )"
 SCRIPT_NAME="$(echo $0 | sed 's|\.\/||g')"
-SCRIPT_VERSION="Version v0.0.1 20200706"
+SCRIPT_VERSION="Version v0.0.2 20200710"
 
 # Funtion definition
 
@@ -165,7 +165,7 @@ function lab_scenario_1_validation () {
         if [ $RUNNING_POD -eq 1 ]
         then
             echo -e "\n\n========================================================"
-            echo -e "\nThe importantapp deployment looks good now, the keyword for the assesment is:\n\nnontrivial paraffin anon\n"
+            echo -e "\nThe importantapp deployment looks good now, the keyword for the assesment is:\n\nmuggiest minuscule decently\n"
         else
             echo -e "\nScenario $LAB_SCENARIO is still FAILED\n"
         fi
@@ -191,39 +191,180 @@ function lab_scenario_2 () {
     az aks get-credentials -g $RESOURCE_GROUP -n $CLUSTER_NAME --overwrite-existing &>/dev/null
 
 cat <<EOF | kubectl apply -f -
-apiVersion: apps/v1
-kind: Deployment
+---
+apiVersion: v1
+kind: Service
 metadata:
-  name: importantapp
+  name: productcatalogue
   labels:
-    app: importantapp
+    app: productcatalogue
+spec:
+  type: NodePort
+  selector:
+    app: productcatalogue
+  ports:
+  - protocol: TCP
+    port: 8020
+    name: http
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: productcatalogue
 spec:
   replicas: 1
-  selector:
-    matchLabels:
-      app: importantapp
   template:
     metadata:
       labels:
-        app: importantapp
+        app: productcatalogue
     spec:
-        containers:
-        - name: importantpod
-          image: polinux/stress
-          resources:
-            requests:
-              memory: "50Mi"
-            limits:
-              memory: "200Mi"
-          command: ["stress"]
-          args: ["--vm", "1", "--vm-bytes", "300M", "--vm-hang", "1"]
+      containers:
+      - name: productcatalogue
+        image: danielbryantuk/djproductcatalogue:1.0
+        ports:
+        - containerPort: 8020
+        livenessProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8025
+          initialDelaySeconds: 30
+          timeoutSeconds: 1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shopfront
+  labels:
+    app: shopfront
+spec:
+  type: NodePort
+  selector:
+    app: shopfront
+  ports:
+  - protocol: TCP
+    port: 8010
+    name: http
+
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: shopfront
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: shopfront
+    spec:
+      containers:
+      - name: djshopfront
+        image: danielbryantuk/djshopfront:1.0
+        ports:
+        - containerPort: 8010
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8010
+          initialDelaySeconds: 30
+          timeoutSeconds: 1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stockmanager
+  labels:
+    app: stockmanager
+spec:
+  type: NodePort
+  selector:
+    app: stockmanager
+  ports:
+  - protocol: TCP
+    port: 8030
+    name: http
+
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: stockmanager
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: stockmanager
+    spec:
+      containers:
+      - name: stockmanager
+        image: danielbryantuk/djstockmanager:1.0
+        ports:
+        - containerPort: 8030
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8030
+          initialDelaySeconds: 30
+          timeoutSeconds: 1
+EOF
+
+cat <<EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    component: custom-check
+  name: custom-check
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      component: custom-check
+      tier: node
+  template:
+    metadata:
+      labels:
+        component: custom-check
+        tier: node
+    spec:
+      containers:
+      - name: custom-check
+        image: alpine
+        imagePullPolicy: IfNotPresent
+        command:
+          - nsenter
+          - --target
+          - "1"
+          - --mount
+          - --uts
+          - --ipc
+          - --net
+          - --pid
+          - --
+          - sh
+          - -c
+          - |
+            while true; do ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%mem | head -2 | grep -v 'PPID' | cut -d ' ' -f2; sleep 30; done
+        resources:
+          requests:
+            cpu: 50m
+        securityContext:
+          privileged: true
+      dnsPolicy: ClusterFirst
+      hostPID: true
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      restartPolicy: Always
+  updateStrategy:
+    type: OnDelete
 EOF
 
     CLUSTER_URI="$(az aks show -g $RESOURCE_GROUP -n $CLUSTER_NAME --query id -o tsv)"
 
     echo -e "\n\n********************************************************"
-    echo -e "\nThe deployment \"importantapp\" has a pod in CrashLoopBackoff."
-    echo -e "\nIdentify why the pod is failing and modify the deployment resources if necesary to fix the issue."
+    echo -e "\nConnect to the worker node and identify what is the process ID that is consuming more memory"
     echo -e "Cluster uri == ${CLUSTER_URI}\n"
 }
 
@@ -238,13 +379,20 @@ function lab_scenario_2_validation () {
     elif [ $LAB_TAG -eq $LAB_SCENARIO ]
     then
         az aks get-credentials -g $RESOURCE_GROUP -n $CLUSTER_NAME --overwrite-existing &>/dev/null
-        RUNNING_POD="$(kubectl get po -l app=importantapp | grep Running | wc -l 2>/dev/null)"
-        if [ $RUNNING_POD -eq 1 ]
+        TOP_PID="$(kubectl logs --tail=1 -l component=custom-check -n kube-system 2>/dev/null)"
+        echo -e "Enter the process ID which is using most of the memory from the node\n"
+        read -p 'PID: ' USER_PID
+        RE='^[0-9]+$'
+        if ! [[ $USER_PID =~ $RE ]] ; then
+        echo "ERROR: The PID value is not valid..."
+        exit 12
+        fi
+        if [ $TOP_POD -eq $USER_PID ]
         then
             echo -e "\n\n========================================================"
-            echo -e "\nThe importantapp deployment looks good now, the keyword for the assesment is:\n\nnontrivial paraffin anon\n"
+            echo -e "\nYour answer is correct, the keyword for the assesment is:\n\nsturdy laundering grammatically\n"
         else
-            echo -e "\nScenario $LAB_SCENARIO is still FAILED\n"
+            echo -e "\nIncorrect answer provided, try again...\n"
         fi
     else
         echo -e "\nError: Cluster $CLUSTER_NAME in resource group $RESOURCE_GROUP was not created with this tool for lab $LAB_SCENARIO and cannot be validated...\n"
@@ -259,7 +407,7 @@ then
     echo -e "\nHere is the list of current labs available:\n
 ***************************************************************
 *\t 1. Pod in CrashLoopBackOff
-*\t 2. Application performance issue
+*\t 2. Memory usage
 ***************************************************************\n"
 echo -e '"-g|--resource-group" resource group name
 "-n|--name" AKS cluster name
@@ -295,7 +443,7 @@ if [ -z $LAB_SCENARIO ]; then
     echo -e "\nHere is the list of current labs available:\n
 ***************************************************************
 *\t 1. Pod in CrashLoopBackOff
-*\t 2. Application performance issue
+*\t 2. Memory usage
 ***************************************************************\n"
 	exit 9
 fi

@@ -22,7 +22,7 @@ Here is the list of current labs available:
 
 ***************************************************************
 *        1. Pod in CrashLoopBackOff
-*        2. Application performance issue
+*        2. Memory usage
 ***************************************************************
 
 "-g|--resource-group" resource group name
